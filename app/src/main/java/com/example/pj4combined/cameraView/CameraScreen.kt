@@ -39,8 +39,7 @@ import kotlin.coroutines.suspendCoroutine
 
 
 private lateinit var bitmapBuffer: Bitmap
-
-
+private var isUsingCPU = false
 
 @Composable
 fun CameraScreen() {
@@ -71,13 +70,16 @@ fun CameraScreen() {
 
     val previewView = remember { PreviewView(context) }
 
-    LaunchedEffect(Unit) {
+    val personClassifierGPU = remember { PersonClassifier() }
+    val personClassifierCPU = remember { PersonClassifier() }
 
-        val personClassifierGPU = PersonClassifier()
+    LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             personClassifierGPU.initialize(context, useGPU = true)
+            personClassifierCPU.initialize(context, useGPU = false, threadNumber = 2)
         }
         personClassifierGPU.setDetectorListener(listener)
+        personClassifierCPU.setDetectorListener(listener)
 
         preview.surfaceProvider = previewView.surfaceProvider
 
@@ -102,17 +104,16 @@ fun CameraScreen() {
     }
 
     if (detectionResults.value != null) {
-        // TODO:
-        //  Choose your inference time threshold
-        val inferenceTimeThreshold = 200000
+        val inferenceTimeThreshold = 400
 
-        if (detectionResults.value!!.inferenceTime > inferenceTimeThreshold) {
+        if (detectionResults.value!!.inferenceTime > inferenceTimeThreshold && !isUsingCPU) {
             Log.d("CS330", "GPU too slow, switching to CPU start")
-            // TODO:
-            //  Create new classifier to be run on CPU with 2 threads
-
-            // TODO:
-            //  Set imageAnalyzer to use the new classifier
+            isUsingCPU = true
+            imageAnalyzer.setAnalyzer(cameraExecutor) { image ->
+                detectObjects(image, personClassifierCPU)
+                // Close the image proxy
+                image.close()
+            }
 
             Log.d("CS330", "GPU too slow, switching to CPU done")
         }
